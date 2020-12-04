@@ -64,6 +64,16 @@ def mapping(x, before_min, before_max, after_min, after_max):
     before_scaled = float(x - before_min) / (before_max - before_min)
     return before_scaled * (after_max - after_min) + after_min
 
+def convert_time(time):
+    h, m, s = 0, 0, time
+    if s>=60:
+        m = int(s // 60)
+        s -= 60*m
+    if m>=60:
+        h = m // 60
+        s -= 60*h
+    return "%s:%s:%2.4f" %(str(h).zfill(2), str(m).zfill(2), s)
+
 
 class EyeDetector:
     def __init__(self):
@@ -150,16 +160,6 @@ class EyeDetector:
             left_eyes = landmarks[42: 48]
         return right_eyes, left_eyes
 
-    def convert_time(self, time):
-        h, m, s = 0, 0, time
-        if s>=60:
-            m = int(s // 60)
-            s -= 60*m
-        if m>=60:
-            h = m // 60
-            s -= 60*h
-        return "%s:%s:%2.4f" %(str(h).zfill(2), str(m).zfill(2), s)
-
     def get_ROI(self, frame, x1, x2, y1, y2):
         x1, x2, y1, y2 = list(map(int, [x1, x2, y1, y2]))
         if len(frame.shape)==3:
@@ -228,6 +228,7 @@ class EyeDetector:
         EARs, Blinks, Times = [], [], []
         eyeR_X, eyeR_Y, eyeL_X, eyeL_Y = [], [], [], []
         times = 0.00
+        out = "Time\tEAR\tBlink\tface-size\tface_x1\tface_y1\tLeft-eye_x\tLeft-eye_y\tRight-eye_x\tRight_eye_y\n"
         if args.demo:
             writer = self.writer_init(inf, "%s/%s.demo.mp4" %(args.outd, splitext(basename(inf))[0]))
         else:
@@ -248,13 +249,14 @@ class EyeDetector:
                         continue
                 times += (fps/1000)
                 frame = self.adjust_frame(frame)
-                face, face_axis, face_axis_org = self.face_detection(frame)
+                face, face_axis, face_org_axis = self.face_detection(frame)
                 if face is None:
                     ear, blink = -1, None
                     left_center, right_center = [-1, -1], [-1, -1]
+                    face_org_axis = [-1, -1, -1, -1]
+                    face_org_size = -1
                 else:
-                    face_org_x = face_axis_org[1]-face_axis_org[0]
-                    face_org_y = face_axis_org[3]-face_axis_org[2]
+                    face_org_size = face_org_axis[1]-face_org_axis[0]
                     landmarks = self.get_landmarks(face)
                     right_eyes, left_eyes = self.get_eyeLandmarks(face, landmarks)
                     EAR, blink = self.BlinkEstimator(right_eyes, left_eyes)
@@ -263,33 +265,24 @@ class EyeDetector:
                     else:
                         left_center, right_center, eye_axisL, eye_axisR = self.eyeCnterEstimator(face, landmarks)
                         left_center[0] = \
-                            mapping(left_center[0]+eye_axisL[0], 0, args.face_size, 0, face_org_x) + face_axis[0]
+                            mapping(left_center[0]+eye_axisL[0], 0, args.face_size, 0, face_org_size) + face_axis[0]
                         left_center[1] = \
-                            mapping(left_center[1]+eye_axisL[2], 0, args.face_size, 0, face_org_y) + face_axis[2]
+                            mapping(left_center[1]+eye_axisL[2], 0, args.face_size, 0, face_org_size) + face_axis[2]
                         right_center[0] = \
-                            mapping(right_center[0]+eye_axisR[0], 0, args.face_size, 0, face_org_x) + face_axis[0]
+                            mapping(right_center[0]+eye_axisR[0], 0, args.face_size, 0, face_org_size) + face_axis[0]
                         right_center[1] = \
-                            mapping(right_center[1]+eye_axisR[2], 0, args.face_size, 0, face_org_y) + face_axis[2]
-                EARs.append(EAR)
-                Blinks.append(blink)
-                Times.append(self.convert_time(times))
-                eyeL_X.append(left_center[0])
-                eyeL_Y.append(left_center[1])
-                eyeR_X.append(right_center[0])
-                eyeR_Y.append(right_center[1])
+                            mapping(right_center[1]+eye_axisR[2], 0, args.face_size, 0, face_org_size) + face_axis[2]
+                out += "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+                    %(convert_time(times), EAR, blink, face_org_size, face_org_axis[0], face_org_axis[2], left_center[0], left_center[1], right_center[0], right_center[1])
                 if args.demo:
-                    writer.write(self.demo(frame, face_axis_org, landmarks, EAR, blink, left_center, right_center))
+                    writer.write(self.demo(frame, face_org_axis, landmarks, EAR, blink, left_center, right_center))
                     if args.demo_frame is not None:
-                        if (cnt+1)>=args.demo_frame:
+                        if (cnt+1)>=args.demo_frame[1]:
                             break
                 t.update(1)
         cap.release()
         if writer is not None:
             writer.release()
-        out = "Time\tEAR\tBlink\tface-size\tLeft-eye_x\tLeft-eye_y\tRight-eye_x\tRight_eye_y\n"
-        for ear, blink, times, eyeL_x, eyeL_y, eyeR_x, eyeR_y in zip(EARs, Blinks, Times, eyeL_X, eyeL_Y, eyeR_X, eyeL_Y):
-            out += "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-                %(times, ear, blink, face_axis_org[1]-face_axis_org[0], eyeL_x, eyeL_y, eyeR_x, eyeR_y)
         outf = "%s/%s.tsv" %(args.outd, splitext(basename(inf))[0])
         with open(outf, "w") as fd:
             fd.write(out)
