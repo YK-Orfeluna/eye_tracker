@@ -95,6 +95,11 @@ class EyeDetector:
                 raise FileNotFoundError("%s is not found." %args.dlib_landmark_detector)
             self.landmark_detecotr = dlib.shape_predictor(args.dlib_landmark_detector)
 
+    def normalize_histogram(self, frame, mode):
+        # BGRからHSVに変換
+        # V（輝度）を正規化して，再度BGRに変換
+        # 実施タイミングは顔検出の前
+
     def get_EAR(self, ps):
         p1, p2, p3, p4, p5, p6 = ps
         ear = (distance.euclidean(p2, p6) + distance.euclidean(p3, p5)) / (2 * distance.euclidean(p1, p4))
